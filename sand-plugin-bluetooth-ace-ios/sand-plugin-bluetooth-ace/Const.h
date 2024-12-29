@@ -13,6 +13,8 @@ extern NSString * const DEVICE_ID;
 extern NSString * const SERVICE_ID;
 extern NSString * const CHARACTERISTIC_ID;
 extern NSString * const DEVICES;
+extern NSString * const WRITE_TYPE;
+
 
 extern NSString * const STATUS_SUCCESS;
 extern NSString * const STATUS_UN_INIT;

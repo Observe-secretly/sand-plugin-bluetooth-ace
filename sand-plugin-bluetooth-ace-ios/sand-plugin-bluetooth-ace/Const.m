@@ -13,6 +13,7 @@ NSString * const DEVICE_ID=@"deviceId";
 NSString * const SERVICE_ID=@"serviceId";
 NSString * const CHARACTERISTIC_ID=@"characteristicId";
 NSString * const DEVICES=@"devices";
+NSString * const WRITE_TYPE=@"writeType";
 //正常
 NSString * const STATUS_SUCCESS=@"2500";
 //蓝牙适配器不可用

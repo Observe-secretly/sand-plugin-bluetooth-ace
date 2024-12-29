@@ -363,8 +363,10 @@ UNI_EXPORT_METHOD(@selector(closeBluetoothAdapter:callback:))
         NSString *deviceId=[options objectForKey:DEVICE_ID];
         NSString *serviceId=[options objectForKey:SERVICE_ID];
         NSString *characteristicId=[options objectForKey:CHARACTERISTIC_ID];
+        NSString *writeType=[options objectForKey:WRITE_TYPE];
+
         NSString *data=[options objectForKey:@"value"];
-        
+
         CBPeripheral *device=[self getDevice:deviceId];
         if(device){
             if(![self getConnectedDevice:deviceId]){
@@ -388,17 +390,31 @@ UNI_EXPORT_METHOD(@selector(closeBluetoothAdapter:callback:))
 
                         NSData *cdata = [self convertHexStrToData:data];
                         
-                        //根据是否支持 Write With Response 或 Write Without Response 来选择类型
-                        CBCharacteristicWriteType writeType = (characteristic.properties & CBCharacteristicPropertyWrite) ?
-                                                                  CBCharacteristicWriteWithResponse : CBCharacteristicWriteWithoutResponse;
-                                                                  
+                        // 根据 writeType 参数确定 CBCWriteType 类型
+                        CBCharacteristicWriteType CBCWriteType;
+                        if (writeType) {
+                            NSString *normalizedWriteType = [[writeType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+                            if ([normalizedWriteType isEqualToString:@"write"]) {
+                                CBCWriteType = CBCharacteristicWriteWithResponse;
+                            } else if ([normalizedWriteType isEqualToString:@"writenoresponse"]) {
+                                CBCWriteType = CBCharacteristicWriteWithoutResponse;
+                            } else {
+                                // 无效值，保持现有逻辑
+                                CBCWriteType = (characteristic.properties & CBCharacteristicPropertyWrite) ?
+                                              CBCharacteristicWriteWithResponse : CBCharacteristicWriteWithoutResponse;
+                            }
+                        } else {
+                            // 不传值，保持现有逻辑
+                            CBCWriteType = (characteristic.properties & CBCharacteristicPropertyWrite) ?
+                                          CBCharacteristicWriteWithResponse : CBCharacteristicWriteWithoutResponse;
+                        }
 
-                        [device writeValue:cdata forCharacteristic:characteristic type:writeType];
+                        [device writeValue:cdata forCharacteristic:characteristic type:CBCWriteType];
                         NSString *key=[NSString stringWithFormat:@"%@-%@-%@",deviceId,serviceId,characteristicId];
                         [self setWriteBLECharacteristicValueCallback:key callback:callback];
 
-                        // 如果是无响应写入类型。手动触发notifyWriteBLECharacteristicValueCallback回调。否则uni的writeBLECharacteristicValue无法获取响应结果，方法无法结束
-                        if (writeType == CBCharacteristicWriteWithoutResponse) {
+                        // 如果是无响应写入类型。手动触发 notifyWriteBLECharacteristicValueCallback 回调。否则 uni 的 writeBLECharacteristicValue 无法获取响应结果，方法无法结束
+                        if (CBCWriteType == CBCharacteristicWriteWithoutResponse) {
                             [weakSelf notifyWriteBLECharacteristicValueCallback:characteristic];
                         }
                         
@@ -426,6 +442,7 @@ UNI_EXPORT_METHOD(@selector(closeBluetoothAdapter:callback:))
 
     }
 }
+
 #pragma mark 设置特征值写入结果回调引用
 -(void)setWriteBLECharacteristicValueCallback:(NSString *)key callback:(UniModuleKeepAliveCallback)callback{
     [writeBLECharacteristicValueCallbackMap setObject:callback forKey:key];
