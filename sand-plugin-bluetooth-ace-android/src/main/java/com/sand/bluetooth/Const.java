@@ -8,6 +8,7 @@ public class Const {
     public static final String SERVICE_ID = "serviceId";
     public static final String CHARACTERISTIC_ID = "characteristicId";
     public static final String DEVICES = "devices";
+    public static final String WRITE_TYPE = "writeType";
     //正常
     public static final String STATUS_SUCCESS = "2500";
     //蓝牙适配器不可用

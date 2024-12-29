@@ -348,6 +348,7 @@ public class SandPluginBluetoothAce extends UniModule {
         cdata.put(Const.MESSAGE,"获取特征值完成");
         this.callBack(onBLECharacteristicValueChangeCallback,cdata,true);
     }
+
     /**
      * 写特征值数据
      * 异步方法（注：异步方法会在主线程（UI线程）执行）
@@ -355,69 +356,94 @@ public class SandPluginBluetoothAce extends UniModule {
      *   @param callback 回调方法，回传参数给 js 端
      */
     @UniJSMethod(uiThread = true)
-    public void writeBLECharacteristicValue(JSONObject options,UniJSCallback callback) {
-        if(this.isAvailable(callback)){
-            String deviceId=options.getString(Const.DEVICE_ID);
-            String serviceId=options.getString(Const.SERVICE_ID);
-            String characteristicId=options.getString(Const.CHARACTERISTIC_ID);
-            String value=options.getString("value");
-            BluetoothLeDevice device=this.getDevice(deviceId);
-            if(device!=null){
-                if(bleManager.getConnectState(device)!= ConnectState.CONNECT_SUCCESS){
-                    JSONObject cdata=new JSONObject();
-                    cdata.put(Const.STATUS,Const.STATUS_UN_SUPPORT);
-                    cdata.put(Const.MESSAGE,"设备未连接，无法写数据");
-                    this.callBack(callback,cdata,false);
+    public void writeBLECharacteristicValue(JSONObject options, UniJSCallback callback) {
+        if (this.isAvailable(callback)) {
+            String deviceId = options.getString(Const.DEVICE_ID);
+            String serviceId = options.getString(Const.SERVICE_ID);
+            String characteristicId = options.getString(Const.CHARACTERISTIC_ID);
+            String value = options.getString("value");
+            String writeType = options.getString(Const.WRITE_TYPE);
+
+            BluetoothLeDevice device = this.getDevice(deviceId);
+            if (device != null) {
+                if (bleManager.getConnectState(device) != ConnectState.CONNECT_SUCCESS) {
+                    JSONObject cdata = new JSONObject();
+                    cdata.put(Const.STATUS, Const.STATUS_UN_SUPPORT);
+                    cdata.put(Const.MESSAGE, "设备未连接，无法写数据");
+                    this.callBack(callback, cdata, false);
                     return;
                 }
-                BluetoothGattService service=this.getService(deviceId,serviceId);
-                if(service!=null){
-                    BluetoothGattCharacteristic characteristic=this.getCharacteristic(deviceId,serviceId,characteristicId);
-                    if(characteristic!=null){
-                        if((characteristic.getProperties()&BluetoothGattCharacteristic.PROPERTY_WRITE)!=0x0||
-                                (characteristic.getProperties()&BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)!=0x0||
-                                (characteristic.getProperties()&BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE)!=0x0
-                        ){
-                            DeviceMirror deviceMirror=bleManager.getDeviceMirror(device);
-                            String channelKey=String.format("%s-%s-%s",deviceId,serviceId,characteristicId);
-                            BluetoothGattChannel channel=null;
-                            if(writeChannelMap.containsKey(channelKey)){
-                                channel=writeChannelMap.get(channelKey);
-                            }else{
-                                channel=new BluetoothGattChannel.Builder()
+
+                BluetoothGattService service = this.getService(deviceId, serviceId);
+                if (service != null) {
+                    BluetoothGattCharacteristic characteristic = this.getCharacteristic(deviceId, serviceId, characteristicId);
+                    if (characteristic != null) {
+                        if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0x0 ||
+                                (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0x0 ||
+                                (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE) != 0x0) {
+
+                            // 根据 writeType 确定 PropertyType
+                            PropertyType propertyType;
+                            if (writeType != null) {
+                                String normalizedWriteType = writeType.trim().toLowerCase();
+                                if ("write".equals(normalizedWriteType)) {
+                                    propertyType = PropertyType.PROPERTY_WRITE;
+                                } else if ("writenoresponse".equals(normalizedWriteType)) {
+                                    propertyType = PropertyType.PROPERTY_WRITE_NO_RESPONSE;
+                                } else {
+                                    // 无效值，保持原有逻辑
+                                    propertyType = (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0x0
+                                            ? PropertyType.PROPERTY_WRITE
+                                            : PropertyType.PROPERTY_WRITE_NO_RESPONSE;
+                                }
+                            } else {
+                                // 不传值，保持原有逻辑
+                                propertyType = (characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0x0
+                                        ? PropertyType.PROPERTY_WRITE
+                                        : PropertyType.PROPERTY_WRITE_NO_RESPONSE;
+                            }
+
+                            DeviceMirror deviceMirror = bleManager.getDeviceMirror(device);
+                            String channelKey = String.format("%s-%s-%s", deviceId, serviceId, characteristicId);
+                            BluetoothGattChannel channel;
+                            if (writeChannelMap.containsKey(channelKey)) {
+                                channel = writeChannelMap.get(channelKey);
+                            } else {
+                                channel = new BluetoothGattChannel.Builder()
                                         .setBluetoothGatt(deviceMirror.getBluetoothGatt())
-                                        .setPropertyType(PropertyType.PROPERTY_WRITE)
+                                        .setPropertyType(propertyType)
                                         .setServiceUUID(service.getUuid())
                                         .setCharacteristicUUID(characteristic.getUuid())
                                         .builder();
-                                writeChannelMap.put(channelKey,channel);
+                                writeChannelMap.put(channelKey, channel);
                             }
+
                             deviceMirror.bindChannel(writeListener, channel);
                             deviceMirror.writeData(HexUtil.decodeHex(value));
-                            this.setWriteBLECharacteristicValueCallback(channelKey,callback);
-                        }else{
-                            JSONObject cdata=new JSONObject();
-                            cdata.put(Const.STATUS,Const.STATUS_UN_SUPPORT);
-                            cdata.put(Const.MESSAGE,"当前特征不支持写操作");
-                            this.callBack(callback,cdata,false);
+                            this.setWriteBLECharacteristicValueCallback(channelKey, callback);
+                        } else {
+                            JSONObject cdata = new JSONObject();
+                            cdata.put(Const.STATUS, Const.STATUS_UN_SUPPORT);
+                            cdata.put(Const.MESSAGE, "当前特征不支持写操作");
+                            this.callBack(callback, cdata, false);
                         }
-                    }else{
-                        JSONObject cdata=new JSONObject();
-                        cdata.put(Const.STATUS,Const.STATUS_FAIL_NO_FOUND);
-                        cdata.put(Const.MESSAGE,"无法找到指定特征");
-                        this.callBack(callback,cdata,false);
+                    } else {
+                        JSONObject cdata = new JSONObject();
+                        cdata.put(Const.STATUS, Const.STATUS_FAIL_NO_FOUND);
+                        cdata.put(Const.MESSAGE, "无法找到指定特征");
+                        this.callBack(callback, cdata, false);
                     }
-                }else{
-                    JSONObject cdata=new JSONObject();
-                    cdata.put(Const.STATUS,Const.STATUS_FAIL_NO_FOUND);
-                    cdata.put(Const.MESSAGE,"无法找到特征列表，设备可能正在同步服务，请稍后再试");
-                    this.callBack(callback,cdata,false);
+                } else {
+                    JSONObject cdata = new JSONObject();
+                    cdata.put(Const.STATUS, Const.STATUS_FAIL_NO_FOUND);
+                    cdata.put(Const.MESSAGE, "无法找到特征列表，设备可能正在同步服务，请稍后再试");
+                    this.callBack(callback, cdata, false);
                 }
-            }else{
-                JSONObject cdata=new JSONObject();
-                cdata.put(Const.STATUS,Const.STATUS_FAIL_NO_DEVICE);
-                cdata.put(Const.MESSAGE,"设备不存在，请确认设备是否是通过startBluetoothDevicesDiscovery获取的设备");
-                this.callBack(callback,cdata,false);
+            } else {
+                JSONObject cdata = new JSONObject();
+                cdata.put(Const.STATUS, Const.STATUS_FAIL_NO_DEVICE);
+                cdata.put(Const.MESSAGE, "设备不存在，请确认设备是否是通过startBluetoothDevicesDiscovery获取的设备");
+                this.callBack(callback, cdata, false);
             }
         }
     }

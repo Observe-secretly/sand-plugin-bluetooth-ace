@@ -230,16 +230,21 @@ public class DeviceMirror {
         public void onCharacteristicChanged(BluetoothGatt gatt, final BluetoothGattCharacteristic characteristic) {
             ViseLog.i("onCharacteristicChanged data:" + HexUtil.encodeHexStr(characteristic.getValue()) +
                     "  ,thread: " + Thread.currentThread());
+
+            System.out.println("特征回复["+characteristic.getUuid()+"]["+HexUtil.encodeHexStr(characteristic.getValue())+"]");
+
             for (Map.Entry<String, IBleCallback> receiveEntry : receiveCallbackMap.entrySet()) {
                 String receiveKey = receiveEntry.getKey();
                 IBleCallback receiveValue = receiveEntry.getValue();
-                for (Map.Entry<String, BluetoothGattChannel> gattInfoEntry : enableInfoMap.entrySet()) {
-                    String bluetoothGattInfoKey = gattInfoEntry.getKey();
-                    BluetoothGattChannel bluetoothGattInfoValue = gattInfoEntry.getValue();
-                    if (receiveKey.equals(bluetoothGattInfoKey)) {
-                        receiveValue.onSuccess(characteristic.getValue(), bluetoothGattInfoValue, bluetoothLeDevice);
-                    }
+
+                //是否使能
+                BluetoothGattChannel bluetoothGattInfoValue = enableInfoMap.get(receiveKey);
+                //发送到对应的订阅中去
+                if (bluetoothGattInfoValue!=null&&
+                        receiveKey.toLowerCase().endsWith(characteristic.getUuid().toString().toLowerCase())) {
+                    receiveValue.onSuccess(characteristic.getValue(), bluetoothGattInfoValue, bluetoothLeDevice);
                 }
+
             }
         }
 
@@ -348,6 +353,12 @@ public class DeviceMirror {
                 }
             } else if (propertyType == PropertyType.PROPERTY_WRITE) {
                 if (!writeInfoMap.containsKey(key)) {
+                    bluetoothGattChannel.getCharacteristic().setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+                    writeInfoMap.put(key, bluetoothGattChannel);
+                }
+            } else if (propertyType == PropertyType.PROPERTY_WRITE_NO_RESPONSE) {
+                if (!writeInfoMap.containsKey(key)) {
+                    bluetoothGattChannel.getCharacteristic().setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
                     writeInfoMap.put(key, bluetoothGattChannel);
                 }
             } else if (propertyType == PropertyType.PROPERTY_NOTIFY) {
@@ -438,6 +449,7 @@ public class DeviceMirror {
      * @param isIndication
      */
     public void registerNotify(boolean isIndication) {
+
         if (!checkBluetoothGattInfo(enableInfoMap)) {
             return;
         }
@@ -801,24 +813,35 @@ public class DeviceMirror {
 
     /**
      * 设置使能
+     * 该方法用于启用或禁用特征的通知或指示功能。通知和指示都是蓝牙特征值改变时的回调机制。
      *
-     * @param enable       是否具备使能
-     * @param isIndication 是否是指示器方式
-     * @return
+     * @param enable       是否具备使能，`true` 表示启用通知或指示，`false` 表示禁用
+     * @param isIndication 是否是指示器方式，`true` 表示启用指示，`false` 表示启用通知
+     * @return 返回是否成功设置，使能成功返回 `true`，否则返回 `false`
      */
     private synchronized boolean enable(boolean enable, boolean isIndication) {
+        // 每次调用时移除接收数据超时消息，并重新设置超时定时
         if (handler != null) {
             handler.removeMessages(MSG_RECEIVE_DATA_TIMEOUT);
             handler.sendEmptyMessageDelayed(MSG_RECEIVE_DATA_TIMEOUT, BleConfig.getInstance().getOperateTimeout());
         }
+
         boolean success = false;
+
+        // 遍历所有的蓝牙通道设置使能
         for (Map.Entry<String, BluetoothGattChannel> entry : enableInfoMap.entrySet()) {
             String bluetoothGattInfoKey = entry.getKey();
             BluetoothGattChannel bluetoothGattInfoValue = entry.getValue();
+
+            // 判断蓝牙 GATT 设备和通道特征是否存在，设置特征的通知
             if (bluetoothGatt != null && bluetoothGattInfoValue.getCharacteristic() != null) {
                 success = bluetoothGatt.setCharacteristicNotification(bluetoothGattInfoValue.getCharacteristic(), enable);
             }
+
+            // 获取特征的描述符，用于设置通知或指示
             BluetoothGattDescriptor bluetoothGattDescriptor = null;
+
+            // 判断是否有已经设置好的描述符，若没有则查找默认的 CLIENT_CHARACTERISTIC_CONFIG 描述符
             if (bluetoothGattInfoValue.getCharacteristic() != null && bluetoothGattInfoValue.getDescriptor() != null) {
                 bluetoothGattDescriptor = bluetoothGattInfoValue.getDescriptor();
             } else if (bluetoothGattInfoValue.getCharacteristic() != null && bluetoothGattInfoValue.getDescriptor() == null) {
@@ -830,28 +853,37 @@ public class DeviceMirror {
                             .getDescriptor(UUID.fromString(BleConstant.CLIENT_CHARACTERISTIC_CONFIG));
                 }
             }
+
+            // 如果找到描述符，设置通知或指示的值
             if (bluetoothGattDescriptor != null) {
                 bluetoothGattInfoValue.setDescriptor(bluetoothGattDescriptor);
                 if (isIndication) {
+                    // 如果是指示方式，设置 ENABLE_INDICATION_VALUE 或 DISABLE_NOTIFICATION_VALUE
                     if (enable) {
                         bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
                     } else {
                         bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
                     }
                 } else {
+                    // 如果是通知方式，设置 ENABLE_NOTIFICATION_VALUE 或 DISABLE_NOTIFICATION_VALUE
                     if (enable) {
                         bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                     } else {
                         bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
                     }
                 }
+
+                // 写入描述符的值，实际上发送设置通知/指示的请求到蓝牙设备
                 if (bluetoothGatt != null) {
                     bluetoothGatt.writeDescriptor(bluetoothGattDescriptor);
                 }
             }
         }
+
+        // 返回是否成功设置，使能
         return success;
     }
+
 
     /**
      * 读取数据

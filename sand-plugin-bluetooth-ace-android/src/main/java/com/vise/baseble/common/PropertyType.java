@@ -8,6 +8,7 @@ package com.vise.baseble.common;
 public enum PropertyType {
     PROPERTY_READ(0x01),
     PROPERTY_WRITE(0x02),
+    PROPERTY_WRITE_NO_RESPONSE(0x03), // 添加无响应写入类型
     PROPERTY_NOTIFY(0x04),
     PROPERTY_INDICATE(0x08);
 
